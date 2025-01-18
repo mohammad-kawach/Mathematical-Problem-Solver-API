@@ -21,15 +21,17 @@ A Flask-based REST API that solves mathematical equations, generates step-by-ste
 
 ## Installation
 
-1. Clone the repository:
+#### Clone the repository:
 
-git clone https://github.com/mohammad-kawach/Mathematical-Problem-Solver-API
+`git clone https://github.com/mohammad-kawach/Mathematical-Problem-Solver-API`
 
-cd Mathematical-Problem-Solver-API
-
-
-2. Install the required dependencies:
-
-pip install -r requirements.txt
+`cd Mathematical-Problem-Solver-API`
 
 
+#### Install the required dependencies:
+
+`pip install -r requirements.txt`
+
+
+#### run the code:
+`python app.py`
