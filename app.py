@@ -4,28 +4,23 @@ from dotenv import load_dotenv
 from flask_cors import CORS
 import sympy as sp
 import matplotlib
-matplotlib.use('Agg')  # Set non-interactive backend
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import io
 import base64
 import numpy as np
+from mpl_toolkits.mplot3d import Axes3D
+
 
 app = Flask(__name__)
-# Enable CORS for all routes
 CORS(app)
-
-# Load environment variables from the .env file
 load_dotenv()
 
 @app.route('/chat', methods=['POST'])
 def chat():
-    """
-    Handle user input and return a response.
-    """
     user_input = request.json.get('message')
-    print(f"Received input: {user_input}")  # Debug log
+    print(f"Received input: {user_input}")
 
-    # Process the input and solve mathematical problems
     try:
         result, steps, graph_url = solve_math(user_input)
         response = {"response": f"The solution is: {result}"}
@@ -40,41 +35,46 @@ def chat():
         return jsonify({"response": "Sorry, I couldn't solve that. Please make sure your input is a valid mathematical problem."})
 
 def solve_math(user_input):
-    """
-    Solve advanced mathematical problems using SymPy.
-    """
-    # Log the raw input for debugging
     print(f"Raw user input: {user_input}")
 
+    # Split multiple equations
+    equations = [eq.strip() for eq in user_input.split(',')]
+
     # Replace '^' with '**' for proper exponentiation
-    user_input = user_input.replace('^', '**')
-    
+    equations = [eq.replace('^', '**') for eq in equations]
+
     # Add explicit multiplication for terms like 2x
     import re
-    user_input = re.sub(r'(\d)([a-zA-Z])', r'\1*\2', user_input)
+    equations = [re.sub(r'(\d)([a-zA-Z])', r'\1*\2', eq) for eq in equations]
 
-    # Define the symbol(s) used in the equation
-    x, y, z = sp.symbols('x y z')  # Add more symbols as needed
+    # Define symbols
+    x, y, z = sp.symbols('x y z')
 
-    # Check if the input contains an equality (e.g., x + 2 = 5)
-    if '=' in user_input:
+    if any('=' in eq for eq in equations):
         try:
-            # Split the input into left-hand side (LHS) and right-hand side (RHS)
-            lhs, rhs = user_input.split('=')
-            # Convert both sides to SymPy expressions
-            lhs = sp.sympify(lhs.strip())
-            rhs = sp.sympify(rhs.strip())
-            print(f"LHS: {lhs}, RHS: {rhs}")  # Log LHS and RHS
-            # Solve the equation
-            solutions = sp.solve(sp.Eq(lhs, rhs))
-            steps = generate_steps(lhs, rhs, solutions)
-            graph_url = generate_graph(lhs - rhs)
+            system_equations = []
+            for eq in equations:
+                if '=' in eq:
+                    lhs, rhs = eq.split('=')
+                    lhs = sp.sympify(lhs.strip())
+                    rhs = sp.sympify(rhs.strip())
+                    system_equations.append(sp.Eq(lhs, rhs))
+                else:
+                    # Handle expressions without equals sign
+                    system_equations.append(sp.sympify(eq))
+
+            print(f"System equations: {system_equations}")
+
+            # Solve the system of equations
+            solutions = sp.solve(system_equations)
+            steps = generate_steps_system(system_equations, solutions)
+            graph_url = generate_graph_system(system_equations)
             return solutions, steps, graph_url
         except Exception as e:
-            print(f"Error solving equation: {e}")  # Log the specific error
-            raise ValueError("Input is not a valid mathematical expression or equation.")
+            print(f"Error solving system: {e}")
+            raise ValueError("Invalid system of equations.")
 
-    # If it's not an equation, try to parse the input as a SymPy expression
+    # Handle single expression
     try:
         parsed_input = sp.sympify(user_input)
         print(f"Parsed input: {parsed_input}")
@@ -82,22 +82,20 @@ def solve_math(user_input):
         graph_url = generate_graph(parsed_input)
         return simplified, None, graph_url
     except (sp.SympifyError, TypeError) as e:
-        print(f"SymPy parsing error: {e}")  # Log the specific error
-        raise ValueError("Input is not a valid mathematical expression or equation.")
+        print(f"SymPy parsing error: {e}")
+        raise ValueError("Invalid mathematical expression.")
 
-def generate_steps(lhs, rhs, solutions):
-    """
-    Generate step-by-step solutions for an equation.
-    """
+def generate_steps_system(equations, solutions):
     steps = []
-    steps.append(f"Original equation: {lhs} = {rhs}")
-    steps.append(f"Rearrange to: {lhs - rhs} = 0")
+    steps.append(f"Original system of equations:")
+    for eq in equations:
+        steps.append(f"  {eq}")
     steps.append(f"Solutions: {solutions}")
     return steps
 
 def generate_graph(expression):
     """
-    Generate a graph for the given expression and return the image URL.
+    Generate a graph for a single expression.
     """
     try:
         # Create a plot
@@ -105,13 +103,14 @@ def generate_graph(expression):
         f = sp.lambdify(x, expression, 'numpy')
 
         # Generate x and y values
-        import numpy as np
         x_vals = np.linspace(-10, 10, 400)
         y_vals = f(x_vals)
 
-        # Plot the graph
+        # Filter out complex values and infinities
+        mask = np.isfinite(y_vals) & np.isreal(y_vals)
+
         plt.figure(figsize=(6, 4))
-        plt.plot(x_vals, y_vals, label=str(expression))
+        plt.plot(x_vals[mask], y_vals[mask], label=str(expression))
         plt.axhline(0, color='black', linewidth=0.5, linestyle='--')
         plt.axvline(0, color='black', linewidth=0.5, linestyle='--')
         plt.title(f"Graph of {expression}")
@@ -119,6 +118,10 @@ def generate_graph(expression):
         plt.ylabel("y")
         plt.legend()
         plt.grid()
+
+        # Set reasonable axis limits
+        plt.xlim(-10, 10)
+        plt.ylim(-10, 10)
 
         # Save the plot to a BytesIO object
         img = io.BytesIO()
@@ -128,6 +131,54 @@ def generate_graph(expression):
         plt.close()
         return graph_url
     except Exception as e:
+        print(f"Error generating graph: {e}")
+        return None
+
+def generate_graph_system(equations):
+    try:
+        # Check if we have equations in two variables (x and y)
+        x, y = sp.symbols('x y')
+
+        # Create a plot
+        plt.figure(figsize=(8, 6))
+
+        # Generate points for each equation
+        x_vals = np.linspace(-10, 10, 400)
+
+        for eq in equations:
+            try:
+                # Solve equation for y in terms of x
+                y_expr = sp.solve(eq, y)[0]
+                f = sp.lambdify(x, y_expr, 'numpy')
+                y_vals = f(x_vals)
+
+                # Filter out complex values and infinities
+                mask = np.isfinite(y_vals) & np.isreal(y_vals)
+                plt.plot(x_vals[mask], y_vals[mask], label=str(eq))
+            except:
+                continue
+
+        plt.axhline(0, color='black', linewidth=0.5, linestyle='--')
+        plt.axvline(0, color='black', linewidth=0.5, linestyle='--')
+        plt.title("System of Equations")
+        plt.xlabel("x")
+        plt.ylabel("y")
+        plt.legend()
+        plt.grid()
+
+        # Set reasonable axis limits
+        plt.xlim(-10, 10)
+        plt.ylim(-10, 10)
+
+        # Save the plot to a BytesIO object
+        img = io.BytesIO()
+        plt.savefig(img, format='png')
+        img.seek(0)
+        graph_url = f"data:image/png;base64,{base64.b64encode(img.getvalue()).decode()}"
+        plt.close()
+        return graph_url
+    except Exception as e:
+        print(f"Error generating graph: {e}")
         return None
 
 if __name__ == "__main__":
