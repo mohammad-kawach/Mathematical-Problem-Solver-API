@@ -22,7 +22,9 @@ A Flask-based REST API that solves mathematical equations, generates step-by-ste
 ## Installation
 
 1. Clone the repository:
+
 git clone https://github.com/mohammad-kawach/Mathematical-Problem-Solver-API
+
 cd Mathematical-Problem-Solver-API
 
 
